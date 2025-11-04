@@ -1,0 +1,5 @@
+{
+  "name": "Python Physics Engine Analyzer",
+  "description": "An advanced web application that allows users to input a Python physics simulation script, view its mocked execution output, and receive a comprehensive AI-powered analysis of the code's methodology, performance, and results using the Gemini API.",
+  "requestFramePermissions": []
+}
