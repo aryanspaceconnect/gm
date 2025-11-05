@@ -13,7 +13,7 @@ export const FitnessChart: React.FC<FitnessChartProps> = ({ fitnessData }) => {
   const height = 300;
   
   const maxX = Math.max(...fitnessData.map(d => d.generation));
-  const maxY = 1; // Fitness is bounded 0-1
+  const maxY = 1; // Fitness (Accuracy) is bounded 0-1
 
   const getX = (gen: number) => padding + (gen / maxX) * (width - padding * 2);
   const getY = (fit: number) => height - padding - (fit / maxY) * (height - padding * 2);
@@ -25,7 +25,7 @@ export const FitnessChart: React.FC<FitnessChartProps> = ({ fitnessData }) => {
   return (
     <div>
         <h3 className="text-lg font-semibold text-cyan-400 border-b border-gray-700 pb-2 mb-3">
-            Fitness Over Generations
+            Accuracy Over Generations
         </h3>
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-gray-900/50 rounded-md">
             {/* Y Axis */}
@@ -36,7 +36,7 @@ export const FitnessChart: React.FC<FitnessChartProps> = ({ fitnessData }) => {
                     <line x1={padding} y1={getY(val)} x2={width-padding} y2={getY(val)} stroke="#4a5568" strokeDasharray="2,2" />
                 </g>
             ))}
-             <text transform={`translate(${padding/4}, ${height/2}) rotate(-90)`} fill="#cbd5e0" textAnchor="middle" fontSize="12">Fitness</text>
+             <text transform={`translate(${padding/4}, ${height/2}) rotate(-90)`} fill="#cbd5e0" textAnchor="middle" fontSize="12">Accuracy</text>
 
             {/* X Axis */}
             <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#4a5568" />
@@ -59,14 +59,14 @@ export const FitnessChart: React.FC<FitnessChartProps> = ({ fitnessData }) => {
 };
 
 interface MetricsDisplayProps {
-    metrics: { fitness: number; novelty: number; runtime: number };
+    metrics: { score: number; accuracy: number; novelty: number };
 }
 
 export const MetricsDisplay: React.FC<MetricsDisplayProps> = ({ metrics }) => {
     const metricItems = [
-        { label: 'Final Fitness', value: metrics.fitness.toFixed(4), unit: '' },
+        { label: 'Overall Score', value: metrics.score.toFixed(4), unit: '' },
+        { label: 'Final Accuracy', value: metrics.accuracy.toFixed(4), unit: '' },
         { label: 'Final Novelty', value: metrics.novelty.toFixed(4), unit: '' },
-        { label: 'Execution Time', value: metrics.runtime.toFixed(2), unit: 'ms' },
     ];
 
     return (

@@ -1,342 +1,312 @@
 
-export const INITIAL_CODE = `import random
-import math
+export const INITIAL_CODE = `#!/usr/bin/env python3
+"""
+Evolved 2‑D physics engine for a bouncing particle.
+Uses genetic programming + novelty search.
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.spatial.distance import euclidean  # For novelty distance
+import random
+import math
 import time
+from matplotlib.animation import FuncAnimation, PillowWriter
 
-# Philosophical invocation: In the forge of algorithmic genesis, where silicon synapses mimic the cosmic dance of particles, this engine births not mere simulators but symphonies of force and form—evolving Verlet threads, Runge-Kutta whispers, and collision cantos from the void, 100-fold refined in the crucible of relentless novelty, defying stasis to unveil the unseen laws of motion.
-
-# --------------------------------------------------------------
-# 1. PHYSICS TEST HARNESS: Single 2D Particle with Gravity + Ground Bounce
-# --------------------------------------------------------------
-# System: Particle starts at [x=0, y=5, vx=2, vy=0], falls under g=9.81, bounces elastically (restitution=0.8) on y=0.
-# Ground truth: High-precision Verlet integration for accuracy.
-# Evaluation: Run 200 steps (dt=0.01, T=2s), compare trajectory MSE (positions only).
-# Sophistication: Evolved code must handle vector state [x,y,vx,vy], forces, integration, collisions.
-
-G = 9.81  # Gravity
+# ------------------- Constants -------------------
+GRAVITY = -9.81
 DT = 0.01
-STEPS = 200  # Total simulation steps
+STEPS = 100
 RESTITUTION = 0.8
-INITIAL_STATE = np.array([0.0, 5.0, 2.0, 0.0])  # x,y,vx,vy
+GROUND = 0.0
 
-def ground_truth():
-    """Verlet integration for ground truth (symplectic, stable for this system)."""
-    pos = INITIAL_STATE[:2].copy()
-    vel = INITIAL_STATE[2:].copy()
-    trajectory = [pos.copy()]
-    prev_pos = pos - vel * DT
+POP_SIZE = 50
+MAX_GEN = 200
+ELITE_COUNT = 5
+MUTATION_RATE = 0.95
+ARCHIVE_SIZE = 50
+
+# ------------------- Ground Truth -------------------
+def verlet_simulation():
+    """Verlet integration reference trajectory."""
+    x0, y0 = 0.0, 1.0
+    vx0, vy0 = 1.0, 0.0
+    x_prev = x0 - vx0 * DT
+    y_prev = y0 - vy0 * DT
+    traj = []
     for _ in range(STEPS):
-        acc = np.array([0.0, -G])
-        next_pos = 2 * pos - prev_pos + acc * DT**2
-        next_vel = (next_pos - prev_pos) / (2 * DT)
-        # Collision: If penetrated ground, reflect
-        if next_pos[1] < 0:
-            next_pos[1] = 0
-            next_vel[1] = -next_vel[1] * RESTITUTION
-        prev_pos = pos.copy()
-        pos = next_pos
-        vel = next_vel
-        trajectory.append(pos.copy())
-    return np.array(trajectory)  # (201, 2) positions
+        a_y = GRAVITY
+        x_new = 2 * x0 - x_prev
+        y_new = 2 * y0 - y_prev + a_y * DT * DT
+        vx0 = (x_new - x_prev) / (2 * DT)
+        vy0 = (y_new - y_prev) / (2 * DT)
+        if y_new < GROUND:
+            y_new = GROUND + abs(y_new - GROUND) * RESTITUTION
+            vy0 = -vy0 * RESTITUTION
+        traj.append([x_new, y_new])
+        x_prev, y_prev = x0, y0
+        x0, y0 = x_new, y_new
+    return np.array(traj)
 
-TRUTH_POS = ground_truth()  # Precompute
+TRUE_TRAJECTORY = verlet_simulation()
 
-# --------------------------------------------------------------
-# 2. ADVANCED CODE EVOLUTION ENGINE (100x Smarter: Novelty-Driven, Multi-Objective GP)
-# --------------------------------------------------------------
-# Representation: Evolve full 'def update(state, dt):' functions as string trees.
-# Fitness: accuracy (1 - MSE) + efficiency (1 / runtime) + complexity_penalty (shorter better).
-# Novelty: Behavioral distance in trajectory space; maintain dynamic archive.
-# Selection: NSGA-II inspired Pareto front (rank by non-dominated fitness/novelty).
-# Mutations: Semantic (change ops), structural (add RK substeps), guided (inject physics priors rarely).
-# Population: 500, Infinite gens (stop at 200 for demo), but novelty ensures endless exploration.
+# ------------------- Code blocks -------------------
+BLOCKS = {
+    'gravity': ['    a_y -= 9.81'],
+    'air_drag': [
+        '    v = math.hypot(vx, vy)',
+        '    drag_coeff = 0.02',
+        '    a_x -= drag_coeff * vx * v',
+        '    a_y -= drag_coeff * vy * v',
+    ],
+    'wind': [
+        '    wind_speed = 5.0',
+        '    a_x += wind_speed * math.sin(2 * math.pi * x)'
+    ],
+    'magnus': [
+        '    lift_coeff = 0.01',
+        '    a_y += lift_coeff * vx'
+    ],
+    'ground_friction': [
+        '    if y <= 0.0:',
+        '        a_x -= 0.5 * vx'
+    ],
+    'euler': [
+        '    vx = vx + a_x * dt',
+        '    vy = vy + a_y * dt',
+        '    x = x + vx * dt',
+        '    y = y + vy * dt'
+    ],
+    'rk4': [
+        '    # RK4 integration',
+        '    k1x = vx',
+        '    k1y = vy',
+        '    k1vx = a_x',
+        '    k1vy = a_y',
+        '    k2x = vx + 0.5 * k1vx * dt',
+        '    k2y = vy + 0.5 * k1vy * dt',
+        '    k2vx = a_x',
+        '    k2vy = a_y',
+        '    k3x = vx + 0.5 * k2vx * dt',
+        '    k3y = vy + 0.5 * k2vy * dt',
+        '    k3vx = a_x',
+        '    k3vy = a_y',
+        '    k4x = vx + k3vx * dt',
+        '    k4y = vy + k3vy * dt',
+        '    k4vx = a_x',
+        '    k4vy = a_y',
+        '    x = x + dt * (k1x + 2 * k2x + 2 * k3x + k4x) / 6.0',
+        '    y = y + dt * (k1y + 2 * k2y + 2 * k3y + k4y) / 6.0',
+        '    vx = vx + dt * (k1vx + 2 * k2vx + 2 * k3vx + k4vx) / 6.0',
+        '    vy = vy + dt * (k1vy + 2 * k2vy + 2 * k3vy + k4vy) / 6.0'
+    ],
+    'bounce': [
+        '    if y < 0.0:',
+        '        y = 0.0 + abs(y - 0.0) * 0.8',
+        '        vy = -vy * 0.8'
+    ],
+}
+force_blocks = ['gravity', 'air_drag', 'wind', 'magnus', 'ground_friction']
 
-LINE_POOL = [  # Sophisticated primitives: Vectors, integrators, forces, collisions
-    "    acc_x = 0.0",
-    "    acc_y = -9.81",
-    "    state[0] += state[2] * dt",  # Euler pos x
-    "    state[1] += state[3] * dt",  # Euler pos y
-    "    state[2] += acc_x * dt",    # Euler vel x
-    "    state[3] += acc_y * dt",    # Euler vel y
-    # Verlet-inspired (without prev, approx)
-    "    state[0] += state[2] * dt + 0.5 * acc_x * dt**2",
-    "    state[1] += state[3] * dt + 0.5 * acc_y * dt**2",
-    "    state[2] += acc_x * dt",
-    "    state[3] += acc_y * dt",
-    # Full RK4 for position and velocity
-    "    k1_vx = acc_x * dt",
-    "    k1_vy = acc_y * dt",
-    "    k1_x = state[2] * dt",
-    "    k1_y = state[3] * dt",
-    "    k2_vx = acc_x * dt",
-    "    k2_vy = acc_y * dt",
-    "    k2_x = (state[2] + 0.5 * k1_vx) * dt",
-    "    k2_y = (state[3] + 0.5 * k1_vy) * dt",
-    "    k3_vx = acc_x * dt",
-    "    k3_vy = acc_y * dt",
-    "    k3_x = (state[2] + 0.5 * k2_vx) * dt",
-    "    k3_y = (state[3] + 0.5 * k2_vy) * dt",
-    "    k4_vx = acc_x * dt",
-    "    k4_vy = acc_y * dt",
-    "    k4_x = (state[2] + k3_vx) * dt",
-    "    k4_y = (state[3] + k3_vy) * dt",
-    "    state[0] += (k1_x + 2*k2_x + 2*k3_x + k4_x)/6.0",
-    "    state[1] += (k1_y + 2*k2_y + 2*k3_y + k4_y)/6.0",
-    "    state[2] += (k1_vx + 2*k2_vx + 2*k3_vx + k4_vx)/6.0",
-    "    state[3] += (k1_vy + 2*k2_vy + 2*k3_vy + k4_vy)/6.0",
-    # Collisions (conditionals for sophistication)
-    "    if state[1] < 0:",
-    "        state[1] = -state[1]",
-    "        state[3] = -state[3] * 0.8",
-    "    if state[1] <= 0 and state[3] < 0:",
-    "        state[3] *= -0.8",  # Frictionless bounce
-    "    if state[1] < 0:",
-    "        state[1] = 0.0",
-    "        state[3] = -state[3] * 0.8",
-    # Advanced: Air drag (quadratic)
-    "    speed = math.sqrt(state[2]**2 + state[3]**2)",
-    "    drag_mag = 0.1 * speed**2",
-    "    drag_x = -drag_mag * state[2] / (speed + 1e-6)",
-    "    drag_y = -drag_mag * state[3] / (speed + 1e-6)",
-    "    state[2] += drag_x * dt",
-    "    state[3] += drag_y * dt",
-    # Bloat/noise for evolution
-    "    state[0] *= 1.0",  # Identity
-    "    pass",
-    "    return state"
-]
+# ------------------- Individual class -------------------
+class Individual:
+    def __init__(self, blocks):
+        self.blocks = blocks
+        self.build_and_compile()
 
-def generate_physics_code():
-    """Generate random initial update function."""
-    base = "def update(state, dt):\\n    import numpy as np\\n    import math\\n    state = np.array(state)\\n    acc_x = 0.0\\n    acc_y = -9.81"
-    num_lines = random.randint(10, 30)  # Larger for complexity
-    selected = random.sample(LINE_POOL * 3, num_lines)  # Duplicates allowed
-    random.shuffle(selected)
-    body = '\\n'.join(selected)
-    full_code = base + '\\n' + body + '\\n    return state.tolist()'
-    return full_code
-
-def mutate_physics(code):
-    """Advanced mutations: Token swaps, insert RK blocks, flip signs, add conditionals."""
-    lines = code.split('\\n')
-    if len(lines) < 5:
-        return code
-    mut_type = random.choice(['token_mut', 'insert_block', 'delete', 'swap', 'semantic'])
-    if mut_type == 'token_mut':
-        idx = random.randint(4, len(lines)-2)
-        line = lines[idx]
-        tokens = line.split()
-        if tokens:
-            t_idx = random.randint(0, len(tokens)-1)
-            opts = {
-                '-9.81': str(random.uniform(-10, -9)),
-                '+': '-', '-': '+',
-                '*': '**', 'dt': 'dt/2',
-                '<': '>', '0.8': str(random.uniform(0.7, 0.9)),
-                'state[3]': 'abs(state[3])',
-                'state[1]': 'state[1] + dt'
-            }
-            if tokens[t_idx] in opts:
-                tokens[t_idx] = opts[tokens[t_idx]]
-            else:
-                tokens[t_idx] = random.choice(['math.sin(dt)', 'np.clip(state[1], 0, np.inf)', '0.0'])
-            lines[idx] = ' '.join(tokens)
-    elif mut_type == 'insert_block':
-        blocks = [
-            "    k1_vx = acc_x * dt\\n    k1_vy = acc_y * dt\\n    k1_x = state[2] * dt\\n    k1_y = state[3] * dt\\n    k2_vx = acc_x * dt\\n    k2_vy = acc_y * dt\\n    k2_x = (state[2] + 0.5 * k1_vx) * dt\\n    k2_y = (state[3] + 0.5 * k1_vy) * dt\\n    k3_vx = acc_x * dt\\n    k3_vy = acc_y * dt\\n    k3_x = (state[2] + 0.5 * k2_vx) * dt\\n    k3_y = (state[3] + 0.5 * k2_vy) * dt\\n    k4_vx = acc_x * dt\\n    k4_vy = acc_y * dt\\n    k4_x = (state[2] + k3_vx) * dt\\n    k4_y = (state[3] + k3_vy) * dt\\n    state[0] += (k1_x + 2*k2_x + 2*k3_x + k4_x)/6.0\\n    state[1] += (k1_y + 2*k2_y + 2*k3_y + k4_y)/6.0\\n    state[2] += (k1_vx + 2*k2_vx + 2*k3_vx + k4_vx)/6.0\\n    state[3] += (k1_vy + 2*k2_vy + 2*k3_vy + k4_vy)/6.0",
-            "    if state[1] < 0:\\n        state[1] = 0\\n        state[3] *= -0.8",
-            "    speed = math.sqrt(state[2]**2 + state[3]**2)\\n    drag_mag = 0.1 * speed**2\\n    drag_x = -drag_mag * state[2] / (speed + 1e-6)\\n    drag_y = -drag_mag * state[3] / (speed + 1e-6)\\n    state[2] += drag_x * dt\\n    state[3] += drag_y * dt"
+    def build_and_compile(self):
+        lines = [
+            'def update(state, dt):',
+            '    x, y, vx, vy = state',
+            '    a_x = 0.0',
+            '    a_y = 0.0'
         ]
-        new_block = random.choice(blocks)
-        idx = random.randint(5, len(lines)-2)
-        new_lines = new_block.split('\\n')
-        lines = lines[:idx] + new_lines + lines[idx:]
-    elif mut_type == 'delete':
-        if len(lines) > 10:
-            idx = random.randint(5, len(lines)-2)
-            del lines[idx]
-    elif mut_type == 'swap':
-        if len(lines) > 6:
-            i, j = random.sample(range(5, len(lines)-1), 2)
-            lines[i], lines[j] = lines[j], lines[i]
-    elif mut_type == 'semantic':
-        for i in range(len(lines)):
-            if '9.81' in lines[i]:
-                lines[i] = lines[i].replace('9.81', str(random.uniform(9, 10)))
-            if '0.8' in lines[i]:
-                lines[i] = lines[i].replace('0.8', str(random.uniform(0.7, 0.9)))
-            if 'acc_y = -' in lines[i]:
-                lines[i] = lines[i].replace('-', '') if random.random() < 0.1 else lines[i]
-    return '\\n'.join(lines)
+        for bid in self.blocks:
+            lines.extend(BLOCKS[bid])
+        lines.append('    return [x, y, vx, vy]')
+        self.code = '\\n'.join(lines)
+        ns = {}
+        exec(self.code, globals(), ns)
+        self.func = ns['update']
 
-def crossover_physics(p1, p2):
-    """Multi-point crossover on lines, preserving structure."""
-    l1, l2 = p1.split('\\n'), p2.split('\\n')
-    min_l = min(len(l1), len(l2))
-    if min_l < 6:
-        return p1 if random.random() < 0.5 else p2
-    points = sorted(random.sample(range(5, min_l-1), random.randint(1, 3)))
-    child = []
-    src1 = l1
-    for pt in points:
-        child.extend(src1[:pt])
-        src1 = l2 if src1 is l1 else l1
-    child.extend(src1[pt:])
-    if not child[0].startswith('def update'):
-        child.insert(0, "def update(state, dt):")
-    child.append('    return state.tolist()')
-    return '\\n'.join(child)
+    def mutate(self):
+        """Simple mutation: replace a random force or integration block."""
+        idx = random.randint(0, len(self.blocks) - 1)
+        bid = self.blocks[idx]
+        if bid in force_blocks and bid != 'gravity':
+            new = random.choice(force_blocks)
+            while new == bid:
+                new = random.choice(force_blocks)
+            self.blocks[idx] = new
+        elif bid in ('euler', 'rk4'):
+            new = random.choice(['euler', 'rk4'])
+            while new == bid:
+                new = random.choice(['euler', 'rk4'])
+            self.blocks[idx] = new
+        # gravity and bounce stay fixed
+        self.build_and_compile()
 
-# --------------------------------------------------------------
-# 3. EVALUATION: Accuracy + Efficiency + Novelty
-# --------------------------------------------------------------
-def evaluate_physics(code):
-    """Exec code, simulate trajectory, compute multi-objective scores."""
-    try:
-        ns = {'np': np, 'math': math, 'state': None, 'dt': None, 'acc_x': None, 'acc_y': None}
-        exec(code, ns)
-        update_func = ns.get('update')
-        if not callable(update_func):
-            return 0.0, float('inf'), np.zeros((STEPS+1, 2))  # fit, runtime, traj
-        start_time = time.time()
-        state = INITIAL_STATE.tolist()
-        trajectory = [state[:2]]
-        for _ in range(STEPS):
-            state = update_func(state, DT)
-            trajectory.append(state[:2])
-        traj = np.array(trajectory)
-        runtime = time.time() - start_time
-        mse = np.mean((traj - TRUTH_POS)**2)
-        accuracy = 1.0 / (1.0 + mse)  # Bounded 0-1
-        efficiency = 1.0 / (1.0 + runtime)  # Normalized
-        combined_fitness = 0.6 * accuracy + 0.4 * efficiency
-        return combined_fitness, runtime, traj
-    except Exception as e:
-        print(f"Eval error: {e}")  # Debug
-        return 0.0, float('inf'), np.zeros((STEPS+1, 2))
+    def __str__(self):
+        return self.code
 
-# Novelty archive
-NOVELTY_ARCHIVE = []
-NOVELTY_THRESHOLD = 0.05
-K_NEAREST = 10
+# ------------------- Utility functions -------------------
+def create_random_individual():
+    """Generate a syntactically valid individual."""
+    blocks = ['gravity']
+    optional = [b for b in force_blocks if b != 'gravity']
+    n_opt = random.randint(0, len(optional))
+    blocks += random.sample(optional, n_opt)
+    blocks.append(random.choice(['euler', 'rk4']))
+    blocks.append('bounce')
+    return Individual(blocks)
 
-def compute_novelty(traj):
-    if not NOVELTY_ARCHIVE:
-        NOVELTY_ARCHIVE.append(traj)
-        return 1.0
-    dists = sorted([euclidean(traj.flatten(), a.flatten()) for a in NOVELTY_ARCHIVE])
-    novelty = np.mean(dists[:K_NEAREST])
-    if novelty > NOVELTY_THRESHOLD:
-        NOVELTY_ARCHIVE.append(traj)
-        if len(NOVELTY_ARCHIVE) > 200:
-            NOVELTY_ARCHIVE.pop(0)
-    return novelty
+archive_behaviors = []
 
-# --------------------------------------------------------------
-# 4. EVOLUTION LOOP: Infinite Novelty-Driven GP
-# --------------------------------------------------------------
-POP_SIZE = 500
-MAX_GENS = 200  # Demo; set higher or loop forever
-MUT_RATE = 0.95
-CROSS_RATE = 0.8
-ELITE_SIZE = 20
-NOVELTY_WEIGHT = 0.5
+def evaluate(ind):
+    """Simulate and score an individual."""
+    state = [0.0, 1.0, 1.0, 0.0]
+    traj = []
+    t0 = time.time()
+    for _ in range(STEPS):
+        state = ind.func(state, DT)
+        traj.append(state.copy())
+    t1 = time.time()
+    runtime = t1 - t0
+    traj = np.array(traj)          # (STEPS, 4)
+    pos  = traj[:, :2]             # (STEPS, 2)
+    mse  = np.mean((pos - TRUE_TRAJECTORY[:, :2])**2)
+    accuracy = 1.0 / (1.0 + mse)
+    efficiency = 1.0 / (1.0 + runtime)
+    behavior = pos.flatten()
+    if not archive_behaviors:
+        novelty = 0.0
+    else:
+        dists = [np.linalg.norm(b - behavior) for b in archive_behaviors]
+        novelty = np.mean(dists)
+    score = 0.4 * accuracy + 0.3 * efficiency + 0.3 * novelty
+    return {
+        'individual': ind,
+        'score': score,
+        'accuracy': accuracy,
+        'efficiency': efficiency,
+        'novelty': novelty,
+        'behavior': behavior
+    }
 
-population = [generate_physics_code() for _ in range(POP_SIZE)]
+def tournament_selection(pop, k=5):
+    """Select one individual by tournament."""
+    chosen = random.sample(pop, k)
+    chosen.sort(key=lambda e: e['score'], reverse=True)
+    return chosen[0]['individual']
 
-print("=== Hyper-Sophisticated Physics Engine Evolution ===\\n")
-print(f"Target: 2D Bouncing Particle | Pop: {POP_SIZE} | Gens: {MAX_GENS} | Novelty Weight: {NOVELTY_WEIGHT}\\n")
+def crossover(p1, p2):
+    """Line‑based safe crossover."""
+    idx = random.randint(1, len(p1.blocks)-1)
+    child_blocks = p1.blocks[:idx] + p2.blocks[idx:]
+    return Individual(child_blocks)
 
-best_fitness_history = []
-best_traj = None
+# ------------------- Main evolution loop -------------------
+def main():
+    population = [create_random_individual() for _ in range(POP_SIZE)]
+    best_overall = None
+    best_score_overall = -1.0
 
-for gen in range(MAX_GENS):
-    evaluated = []
-    for ind in population:
-        fit, rt, traj = evaluate_physics(ind)
-        nov = compute_novelty(traj)
-        total_score = (1 - NOVELTY_WEIGHT) * fit + NOVELTY_WEIGHT * nov
-        evaluated.append((ind, fit, nov, rt, total_score, traj))
+    for gen in range(1, MAX_GEN + 1):
+        evaluated = [evaluate(ind) for ind in population]
+        evaluated.sort(key=lambda e: e['score'], reverse=True)
+        elite = evaluated[:ELITE_COUNT]
 
-    evaluated.sort(key=lambda x: x[4], reverse=True)
+        if elite[0]['score'] > best_score_overall:
+            best_score_overall = elite[0]['score']
+            best_overall = elite[0]
 
-    best = evaluated[0]
-    best_fitness_history.append(best[1])
-    best_traj = best[5]
-    if gen % 10 == 0:
-        print(f"Gen {gen+1}: Best Fit={best[1]:.4f} | Nov={best[2]:.4f} | RT={best[3]:.6f}s | Archive={len(NOVELTY_ARCHIVE)}")
-        print(f"Best Code:\\n{best[0]}\\n{'-'*80}")
+        for e in evaluated:
+            archive_behaviors.append(e['behavior'])
+            if len(archive_behaviors) > ARCHIVE_SIZE:
+                archive_behaviors.pop(0)
 
-    new_pop = [e[0] for e in evaluated[:ELITE_SIZE]]
+        if gen % 20 == 0 or gen == 1 or gen == MAX_GEN:
+            print(f"Gen {gen:3d} | Best score: {elite[0]['score']:.4f} | "
+                  f"Accuracy: {elite[0]['accuracy']:.4f} | Novelty: {elite[0]['novelty']:.4f}")
 
-    parents = []
-    for _ in range(POP_SIZE - ELITE_SIZE):
-        tour = random.sample(evaluated, 5)
-        parents.append(max(tour, key=lambda x: x[4])[0])
+        if elite[0]['accuracy'] > 0.92 and len(archive_behaviors) > 20:
+            print(f"Early stop: accuracy > 0.92 and archive > 20 at generation {gen}")
+            break
 
-    for i in range(0, len(parents), 2):
-        if i+1 < len(parents):
-            c1, c2 = crossover_physics(parents[i], parents[i+1])
-            if random.random() < MUT_RATE:
-                c1 = mutate_physics(c1)
-            if random.random() < MUT_RATE:
-                c2 = mutate_physics(c2)
-            new_pop.extend([c1, c2])
-        else:
-            new_pop.append(mutate_physics(parents[i]))
+        children = []
+        while len(children) < POP_SIZE - ELITE_COUNT:
+            p1 = tournament_selection(evaluated)
+            p2 = tournament_selection(evaluated)
+            child = crossover(p1, p2)
+            if random.random() < MUTATION_RATE:
+                child.mutate()
+            children.append(child)
+        population = [e['individual'] for e in elite] + children
 
-    population = new_pop[:POP_SIZE]
+    # ------------------- Output -------------------
+    best_ind = best_overall['individual']
+    print("\\n=== Best Evolved \`update(state,dt)\` ===")
+    print(best_ind.code)
 
-print("\\n=== Evolution Demo Complete ===")
+    with open('evolved_physics.py', 'w') as f:
+        f.write('import math\\n\\n')
+        f.write(best_ind.code + '\\n')
 
-# Visualization
-plt.figure(figsize=(12, 5))
-plt.subplot(1, 2, 1)
-plt.plot(best_fitness_history)
-plt.title('Fitness Over Generations')
-plt.ylabel('Best Fitness')
+    # Trajectory of the best individual
+    state = [0.0, 1.0, 1.0, 0.0]
+    traj = []
+    for _ in range(STEPS):
+        state = best_ind.func(state, DT)
+        traj.append(state.copy())
+    traj = np.array(traj)
 
-plt.subplot(1, 2, 2)
-plt.plot(TRUTH_POS[:, 0], TRUTH_POS[:, 1], 'g-', label='Truth')
-plt.plot(best_traj[:, 0], best_traj[:, 1], 'r--', label='Evolved')
-plt.title('Trajectories')
-plt.legend()
-plt.show()
+    # Plot comparison
+    plt.figure(figsize=(6,4))
+    plt.plot(TRUE_TRAJECTORY[:,0], TRUE_TRAJECTORY[:,1], 'r-', label='Verlet (Truth)')
+    plt.plot(traj[:,0], traj[:,1], 'b--', label='Evolved')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title('Trajectory comparison')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('trajectory_comparison.png')
+    plt.show()
 
-# Save best
-with open('evolved_physics_engine.py', 'w') as f:
-    f.write(best[0])
-print("Best engine saved.")
+    # GIF animation
+    fig, ax = plt.subplots()
+    line_truth, = ax.plot([], [], 'r-')
+    line_evolved, = ax.plot([], [], 'b-')
+    ax.set_xlim(np.min(TRUE_TRAJECTORY[:,0]) - 1, np.max(TRUE_TRAJECTORY[:,0]) + 1)
+    ax.set_ylim(np.min(TRUE_TRAJECTORY[:,1]) - 1, np.max(TRUE_TRAJECTORY[:,1]) + 1)
+    ax.set_title('Bouncing particle')
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.legend()
+
+    def init():
+        line_truth.set_data([], [])
+        line_evolved.set_data([], [])
+        return line_truth, line_evolved
+
+    def animate(i):
+        line_truth.set_data(TRUE_TRAJECTORY[:i+1,0], TRUE_TRAJECTORY[:i+1,1])
+        line_evolved.set_data(traj[:i+1,0], traj[:i+1,1])
+        return line_truth, line_evolved
+
+    ani = FuncAnimation(fig, animate, frames=STEPS, init_func=init, blit=True, interval=50)
+    ani.save('bounce.gif', writer=PillowWriter(fps=20))
+    print("\\nSaved GIF as 'bounce.gif' and plot as 'trajectory_comparison.png'.")
+
+if __name__ == "__main__":
+    main()
 `;
 
-export const MOCK_OUTPUT = `=== Hyper-Sophisticated Physics Engine Evolution ===
+export const MOCK_OUTPUT = `Gen   1 | Best score: 0.3451 | Accuracy: 0.1532 | Novelty: 0.4823
+Gen  20 | Best score: 0.7812 | Accuracy: 0.6789 | Novelty: 0.8123
+Gen  40 | Best score: 0.8923 | Accuracy: 0.8511 | Novelty: 0.6521
+Gen  60 | Best score: 0.9415 | Accuracy: 0.9155 | Novelty: 0.5134
+Gen  62 | Best score: 0.9567 | Accuracy: 0.9241 | Novelty: 0.4988
+Early stop: accuracy > 0.92 and archive > 20 at generation 62
 
-Target: 2D Bouncing Particle | Pop: 500 | Gens: 200 | Novelty Weight: 0.5
-
-Gen 1: Best Fit=0.0123 | Nov=1.0000 | RT=0.001234s | Archive=1
-Best Code:
+=== Best Evolved \`update(state,dt)\` ===
 ...
---------------------------------------------------------------------------------
-Gen 11: Best Fit=0.4582 | Nov=0.8734 | RT=0.000987s | Archive=25
-Best Code:
-...
---------------------------------------------------------------------------------
-Gen 51: Best Fit=0.8912 | Nov=0.5123 | RT=0.000812s | Archive=98
-Best Code:
-...
---------------------------------------------------------------------------------
-Gen 101: Best Fit=0.9856 | Nov=0.2345 | RT=0.000756s | Archive=153
-Best Code:
-...
---------------------------------------------------------------------------------
-Gen 191: Best Fit=0.9998 | Nov=0.0678 | RT=0.000711s | Archive=200
-Best Code:
-...
---------------------------------------------------------------------------------
-
-=== Evolution Demo Complete ===
-Best engine saved.
 `;
